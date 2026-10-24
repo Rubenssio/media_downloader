@@ -7,11 +7,10 @@ authors = [
     { name = "Rubenssio", email = "76112248+Rubenssio@users.noreply.github.com" }
 ]
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "pytubefix>=11.2.1",
+    "yt-dlp>=2026.10.21",
+]
 
-[project.scripts]
-media-downloader = "media_downloader:main"
-
-[build-system]
-requires = ["uv_build>=0.13.5,<0.14.0"]
-build-backend = "uv_build"
+[tool.uv]
+package = false

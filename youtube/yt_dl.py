@@ -887,7 +887,8 @@ def main():
     # Currently NOT used by the new yt-dlp audio path.
     MAX_FILE_SIZE_MB = None
 
-    DOWNLOAD_DIR = "downloads"
+    # TODO: Make this OS-independent
+    DOWNLOAD_DIR = "../downloads"
 
     # Video-specific settings.
     REENCODE_VIDEO = True
