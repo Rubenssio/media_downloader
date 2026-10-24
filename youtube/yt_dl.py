@@ -882,13 +882,12 @@ def main():
 
     # Used only for video mode:
     # "highest", "1080p", "720p", etc.
-    RESOLUTION = "480p"
+    RESOLUTION = "360p"
 
     # Currently NOT used by the new yt-dlp audio path.
     MAX_FILE_SIZE_MB = None
 
-    # TODO: Make this OS-independent
-    DOWNLOAD_DIR = "../downloads"
+    DOWNLOAD_DIR = "downloads"
 
     # Video-specific settings.
     REENCODE_VIDEO = True
