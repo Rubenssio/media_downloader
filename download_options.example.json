@@ -1,0 +1,10 @@
+{
+  "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  "mode": "audio",
+  "resolution": "360p",
+  "max_file_size_mb": 5,
+  "reencode_video": true,
+  "fast_encode": false,
+  "threads": null,
+  "start_end": [0, 18.15]
+}

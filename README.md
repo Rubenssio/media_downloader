@@ -1,6 +1,29 @@
 # Media Downloader
 
-Configure the YouTube URL and download options in `main.py`, then run:
+Before running the downloader, create `download_options.json` next to `main.py`
+using [`download_options.example.json`](./download_options.example.json) as a
+template. The options are:
+
+- `url`: YouTube video URL to download.
+- `mode`: `"audio"` to save an MP3, or `"video"` to save an MP4.
+- `resolution`: Video resolution, such as `"360p"`, or `"highest"`. Used only
+  in video mode.
+- `max_file_size_mb`: Maximum video output size in decimal megabytes. Video is
+  re-encoded at a lower bitrate as needed to get below this limit. Used only in
+  video mode.
+- `reencode_video`: Re-encode the video instead of copying its streams. Video
+  trimming requires this to be `true`; it must also be `true` to use
+  `max_file_size_mb`.
+- `fast_encode`: Use FFmpeg's faster, lower-compression encoding preset. Used
+  only when re-encoding video.
+- `threads`: Number of CPU threads for video re-encoding, or `null` to use all
+  available cores.
+- `start_end`: Optional `[start, end]` trim points in seconds. Use `null` to
+  download the full clip. Trimming works in both modes.
+
+The download location remains configured in `main.py`.
+
+Then run:
 
 ```sh
 uv run python main.py
