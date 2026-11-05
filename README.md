@@ -15,9 +15,9 @@ template. The options are:
   gets its own temporary subdirectory, which is removed when processing ends.
 - `resolution`: Video resolution, such as `"360p"`, or `"highest"`. Used only
   in video mode.
-- `max_file_size_mb`: Maximum video output size in decimal megabytes. Video is
-  re-encoded at a lower bitrate as needed to get below this limit. Used only in
-  video mode.
+- `max_file_size_mb`: Maximum video output size in decimal megabytes, or
+  `null` for no size limit. Video is re-encoded at a lower bitrate as needed to
+  get below this limit. Used only in video mode.
 - `reencode_video`: Re-encode the video instead of copying its streams. Video
   trimming requires this to be `true`; it must also be `true` to use
   `max_file_size_mb`.

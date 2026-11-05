@@ -1,10 +1,10 @@
 {
   "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-  "mode": "audio",
+  "mode": "video",
   "final_download_dir": "~/Downloads",
   "intermediate_dir": "python-temp",
-  "resolution": "360p",
-  "max_file_size_mb": 5,
+  "resolution": "highest",
+  "max_file_size_mb": null,
   "reencode_video": true,
   "fast_encode": false,
   "threads": null,
