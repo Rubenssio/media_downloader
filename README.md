@@ -6,6 +6,10 @@ template. The options are:
 
 - `url`: YouTube video URL to download.
 - `mode`: `"audio"` to save an MP3, or `"video"` to save an MP4.
+- `final_download_dir`: Directory for completed files. On Mac, use
+  `"~/Downloads"` for your regular Downloads folder. `~` is expanded for the
+  current user; change this value to choose another destination. Intermediate
+  downloads remain in the project's `downloads` directory.
 - `resolution`: Video resolution, such as `"360p"`, or `"highest"`. Used only
   in video mode.
 - `max_file_size_mb`: Maximum video output size in decimal megabytes. Video is
@@ -20,8 +24,6 @@ template. The options are:
   available cores.
 - `start_end`: Optional `[start, end]` trim points in seconds. Use `null` to
   download the full clip. Trimming works in both modes.
-
-The download location remains configured in `main.py`.
 
 Then run:
 

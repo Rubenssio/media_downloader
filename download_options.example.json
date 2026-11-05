@@ -1,6 +1,7 @@
 {
   "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
   "mode": "audio",
+  "final_download_dir": "~/Downloads",
   "resolution": "360p",
   "max_file_size_mb": 5,
   "reencode_video": true,

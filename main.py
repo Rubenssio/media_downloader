@@ -18,12 +18,17 @@ def main():
         start_end = tuple(start_end)
 
     DOWNLOAD_DIR = "downloads"
+    # TODO: Resolve the platform-specific Downloads folder on Windows and Linux.
+    final_download_dir = Path(
+        options.get("final_download_dir", "~/Downloads")
+    ).expanduser()
 
     if mode == "audio":
         download_video(
             video_url=options["url"],
             mode="audio",
             download_dir=DOWNLOAD_DIR,
+            final_download_dir=str(final_download_dir),
             max_file_size_mb=options["max_file_size_mb"],
             start_end=start_end,
         )
@@ -33,6 +38,7 @@ def main():
             mode="video",
             resolution=options["resolution"],
             download_dir=DOWNLOAD_DIR,
+            final_download_dir=str(final_download_dir),
             reencode=options["reencode_video"],
             fast_encode=options["fast_encode"],
             threads=options["threads"],

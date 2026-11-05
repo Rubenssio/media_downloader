@@ -52,7 +52,8 @@ def download_audio_with_ytdlp(
     video_url: str,
     download_dir: str,
     start_end: tuple = None,
-    bitrate: str = "192k"
+    bitrate: str = "192k",
+    final_download_dir: str = None
 ):
     """
     Download the best available audio using yt-dlp,
@@ -66,10 +67,9 @@ def download_audio_with_ytdlp(
         ID3v2.3
     """
 
-    os.makedirs(
-        download_dir,
-        exist_ok=True
-    )
+    output_dir = final_download_dir or download_dir
+    os.makedirs(download_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
 
     ydl_opts = {
         "format": "bestaudio/best",
@@ -130,13 +130,13 @@ def download_audio_with_ytdlp(
         )
 
         final_filename = ensure_unique_filename(
-            download_dir,
+            output_dir,
             safe_title,
             ext=".mp3"
         )
 
         final_audio_path = os.path.join(
-            download_dir,
+            output_dir,
             final_filename
         )
 
@@ -248,7 +248,8 @@ def download_video(
     reencode: bool = True,
     fast_encode: bool = False,
     threads: int = None,
-    start_end: tuple = None
+    start_end: tuple = None,
+    final_download_dir: str = None
 ):
     """
     Download a YouTube video or audio.
@@ -265,7 +266,8 @@ def download_video(
             video_url=video_url,
             download_dir=download_dir,
             start_end=start_end,
-            bitrate="192k"
+            bitrate="192k",
+            final_download_dir=final_download_dir
         )
 
         return
@@ -307,13 +309,12 @@ def download_video(
         title
     )
 
-    os.makedirs(
-        download_dir,
-        exist_ok=True
-    )
+    output_dir = final_download_dir or download_dir
+    os.makedirs(download_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
 
     final_filename = ensure_unique_filename(
-        download_dir,
+        output_dir,
         safe_title
     )
 
@@ -359,7 +360,7 @@ def download_video(
         )
 
         output_path = os.path.join(
-            download_dir,
+            output_dir,
             final_filename
         )
 
@@ -448,7 +449,7 @@ def download_video(
             )
 
             output_path = os.path.join(
-                download_dir,
+                output_dir,
                 final_filename
             )
 
@@ -531,7 +532,7 @@ def download_video(
                 )
 
             output_path = os.path.join(
-                download_dir,
+                output_dir,
                 final_filename
             )
 
@@ -567,7 +568,7 @@ def download_video(
                     os.remove(progressive_path)
             else:
                 stream.download(
-                    output_path=download_dir,
+                    output_path=output_dir,
                     filename=final_filename
                 )
 
