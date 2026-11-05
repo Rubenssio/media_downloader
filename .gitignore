@@ -12,9 +12,5 @@ wheels/
 # Per-download options
 /download_options.json
 
-# Keep the downloads directory, but not its contents
-/downloads/*
-!/downloads/README
-
 # macOS
 .DS_Store

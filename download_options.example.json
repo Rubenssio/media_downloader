@@ -2,6 +2,7 @@
   "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
   "mode": "audio",
   "final_download_dir": "~/Downloads",
+  "intermediate_dir": "python-temp",
   "resolution": "360p",
   "max_file_size_mb": 5,
   "reencode_video": true,

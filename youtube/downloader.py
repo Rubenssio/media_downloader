@@ -1,6 +1,7 @@
 import os
 import re
 import logging
+import shutil
 import subprocess
 from pytubefix import YouTube
 from datetime import timedelta
@@ -46,6 +47,11 @@ def ensure_unique_filename(
         i += 1
 
     return final_name
+
+
+def move_to_final_location(working_path: str, final_path: str) -> None:
+    if os.path.abspath(working_path) != os.path.abspath(final_path):
+        shutil.move(working_path, final_path)
 
 
 def download_audio_with_ytdlp(
@@ -139,6 +145,10 @@ def download_audio_with_ytdlp(
             output_dir,
             final_filename
         )
+        working_audio_path = os.path.join(
+            download_dir,
+            final_filename
+        )
 
         # TODO: Move this audio conversion into media_processing.
         logger.info(
@@ -207,12 +217,16 @@ def download_audio_with_ytdlp(
             # MP3 players / USB speakers.
             "-id3v2_version", "3",
 
-            final_audio_path
+            working_audio_path
         ]
 
         subprocess.run(
             command,
             check=True
+        )
+        move_to_final_location(
+            working_audio_path,
+            final_audio_path
         )
 
         # Delete the original downloaded source.
@@ -363,6 +377,10 @@ def download_video(
             output_dir,
             final_filename
         )
+        working_output_path = os.path.join(
+            download_dir,
+            final_filename
+        )
 
         logger.info(
             f"Downloading video: "
@@ -391,13 +409,17 @@ def download_video(
         merge_video_audio(
             video_path,
             audio_path,
-            output_path,
+            working_output_path,
             yt.length,
             reencode=reencode,
             fast_encode=fast_encode,
             threads=threads,
             start_end=start_end,
             max_file_size_mb=max_file_size_mb
+        )
+        move_to_final_location(
+            working_output_path,
+            output_path
         )
 
         if os.path.exists(video_path):
@@ -452,6 +474,10 @@ def download_video(
                 output_dir,
                 final_filename
             )
+            working_output_path = os.path.join(
+                download_dir,
+                final_filename
+            )
 
             logger.info(
                 f"Downloading video: "
@@ -481,13 +507,17 @@ def download_video(
             merge_video_audio(
                 video_path,
                 audio_path,
-                output_path,
+                working_output_path,
                 yt.length,
                 reencode=reencode,
                 fast_encode=fast_encode,
                 threads=threads,
                 start_end=start_end,
                 max_file_size_mb=max_file_size_mb
+            )
+            move_to_final_location(
+                working_output_path,
+                output_path
             )
 
             if os.path.exists(video_path):
@@ -555,7 +585,7 @@ def download_video(
                 merge_video_audio(
                     progressive_path,
                     None,
-                    output_path,
+                    os.path.join(download_dir, final_filename),
                     yt.length,
                     reencode=reencode,
                     fast_encode=fast_encode,
@@ -563,13 +593,21 @@ def download_video(
                     start_end=start_end,
                     max_file_size_mb=max_file_size_mb
                 )
+                move_to_final_location(
+                    os.path.join(download_dir, final_filename),
+                    output_path
+                )
 
                 if os.path.exists(progressive_path):
                     os.remove(progressive_path)
             else:
                 stream.download(
-                    output_path=output_dir,
+                    output_path=download_dir,
                     filename=final_filename
+                )
+                move_to_final_location(
+                    os.path.join(download_dir, final_filename),
+                    output_path
                 )
 
     logger.info(
