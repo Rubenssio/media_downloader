@@ -13,11 +13,20 @@ template. The options are:
   default `"python-temp"` uses Python's system temporary location. You can set
   this to a path on a drive with enough free space for large videos. Each run
   gets its own temporary subdirectory, which is removed when processing ends.
-- `resolution`: Video resolution, such as `"360p"`, or `"highest"`. Used only
-  in video mode.
-- `max_file_size_mb`: Maximum video output size in decimal megabytes, or
-  `null` for no size limit. Video is re-encoded at a lower bitrate as needed to
-  get below this limit. Used only in video mode.
+- `resolution`: Starting video resolution, such as `"360p"`, or `"highest"`.
+  Used only in video mode.
+- `minimum_resolution`: Lowest resolution to try if the file-size limit is not
+  met. The downloader keeps the original downloaded stream and locally
+  downscales through standard steps (`2160p`/4K, `1440p`, `1080p`, `720p`,
+  `480p`, `360p`, `240p`, `144p`).
+- `max_file_size_mb`: Maximum output size in decimal megabytes, or
+  `null` for no size limit. In video mode, video bitrate is reduced first, then
+  audio bitrate, before trying a lower resolution. In audio mode, MP3 bitrate
+  is reduced from 192 kbps. Both modes stop at `minimum_audio_bitrate`; video
+  mode also stops at `minimum_bitrate`.
+- `minimum_bitrate`: Minimum video bitrate in kbps for video mode.
+- `minimum_audio_bitrate`: Minimum audio bitrate in kbps, used for the audio
+  track in video mode and for MP3 output in audio mode.
 - `reencode_video`: Re-encode the video instead of copying its streams. Video
   trimming requires this to be `true`; it must also be `true` to use
   `max_file_size_mb`.

@@ -3,7 +3,7 @@ import logging
 import tempfile
 from pathlib import Path
 
-from media_processing.ffmpeg import VideoSizeLimitError
+from media_processing.ffmpeg import FileSizeLimitError
 from youtube.downloader import download_video
 
 
@@ -46,6 +46,7 @@ def main():
                 download_dir=work_dir,
                 final_download_dir=str(final_download_dir),
                 max_file_size_mb=options["max_file_size_mb"],
+                minimum_audio_bitrate_kbps=options["minimum_audio_bitrate"],
                 start_end=start_end,
             )
         else:
@@ -53,6 +54,7 @@ def main():
                 video_url=options["url"],
                 mode="video",
                 resolution=options["resolution"],
+                minimum_resolution=options["minimum_resolution"],
                 download_dir=work_dir,
                 final_download_dir=str(final_download_dir),
                 reencode=options["reencode_video"],
@@ -60,11 +62,13 @@ def main():
                 threads=options["threads"],
                 start_end=start_end,
                 max_file_size_mb=options["max_file_size_mb"],
+                minimum_video_bitrate_kbps=options["minimum_bitrate"],
+                minimum_audio_bitrate_kbps=options["minimum_audio_bitrate"],
             )
 
 
 if __name__ == "__main__":
     try:
         main()
-    except VideoSizeLimitError as error:
+    except FileSizeLimitError as error:
         logger.error("Download stopped: %s", error)

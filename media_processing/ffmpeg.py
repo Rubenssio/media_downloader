@@ -10,8 +10,16 @@ from datetime import timedelta
 logger = logging.getLogger(__name__)
 
 
-class VideoSizeLimitError(RuntimeError):
+class FileSizeLimitError(RuntimeError):
+    """Raised when media cannot be encoded within the configured size limit."""
+
+
+class VideoSizeLimitError(FileSizeLimitError):
     """Raised when a video cannot be encoded within the configured size limit."""
+
+
+class AudioSizeLimitError(FileSizeLimitError):
+    """Raised when audio cannot be encoded within the configured size limit."""
 
 
 def merge_video_audio(
@@ -23,7 +31,13 @@ def merge_video_audio(
     fast_encode: bool = False,
     threads: int = None,
     start_end: tuple = None,
-    max_file_size_mb: float = None
+    max_file_size_mb: float = None,
+    resolution_attempts: list[tuple[str, int]] | None = None,
+    source_resolution_height: int | None = None,
+    initial_video_bitrate_kbps: int | None = None,
+    initial_audio_bitrate_kbps: int = 96,
+    minimum_video_bitrate_kbps: int = 50,
+    minimum_audio_bitrate_kbps: int = 32,
 ):
     """
     Merge video and audio with optional re-encoding,
@@ -53,163 +67,221 @@ def merge_video_audio(
         raise ValueError("Video duration must be greater than zero.")
 
     max_bytes = None
-    video_bitrate_kbps = None
 
     if max_file_size_mb is not None:
         if max_file_size_mb <= 0:
             raise ValueError("Maximum file size must be greater than zero.")
+        if initial_video_bitrate_kbps is None or initial_video_bitrate_kbps <= 0:
+            raise ValueError(
+                "A positive initial video bitrate is required "
+                "when limiting file size."
+            )
+        if initial_audio_bitrate_kbps <= 0:
+            raise ValueError("Initial audio bitrate must be greater than zero.")
+        if minimum_video_bitrate_kbps <= 0:
+            raise ValueError("Minimum video bitrate must be greater than zero.")
+        if minimum_audio_bitrate_kbps <= 0:
+            raise ValueError("Minimum audio bitrate must be greater than zero.")
 
         max_bytes = int(max_file_size_mb * 1_000_000)
-        audio_bitrate_kbps = 96
-        target_total_bitrate_kbps = (
-            max_bytes * 8 / duration_sec / 1000 * 0.9
-        )
-        video_bitrate_kbps = max(
-            50,
-            int(target_total_bitrate_kbps - audio_bitrate_kbps)
-        )
+        if not resolution_attempts:
+            resolution_attempts = [
+                ("source resolution", source_resolution_height or 0)
+            ]
 
     time_pattern = re.compile(
         r"time=(\d+):(\d+):(\d+)\.(\d+)"
     )
 
-    while True:
-        command = [
-            "ffmpeg",
-            "-y",
-            "-i", video_path
-        ]
-
-        if audio_path:
-            command += ["-i", audio_path]
-
-        if reencode:
-            command += [
-                "-c:v", "libx264",
-                "-c:a", "aac",
-                "-movflags", "+faststart",
-                "-threads", str(used_threads)
-            ]
-
-            if max_bytes is not None:
-                command += [
-                    "-b:v", f"{video_bitrate_kbps}k",
-                    "-b:a", "96k"
-                ]
-
-            if fast_encode:
-                command += ["-preset", "ultrafast"]
-
-            if start_end:
-                command += [
-                    "-ss", str(start),
-                    "-t", str(end - start)
-                ]
-        else:
-            command += ["-c", "copy"]
-
-        command.append(output_path)
-
-        print("[INFO] Merging video and audio...")
-        print(f"[INFO] Using {used_threads}/{total_cores} CPU cores")
+    attempts = resolution_attempts or [(None, 0)]
+    for resolution_name, output_height in attempts:
         if max_bytes is not None:
-            print(
-                f"[INFO] Encoding video at "
-                f"{video_bitrate_kbps} kbps to meet the "
-                f"{max_file_size_mb:g} MB size limit"
+            scale_ratio = (
+                (output_height / source_resolution_height) ** 2
+                if output_height and source_resolution_height
+                else 1
+            )
+            video_bitrate_kbps = max(
+                minimum_video_bitrate_kbps,
+                int(initial_video_bitrate_kbps * scale_ratio),
+            )
+            audio_bitrate_kbps = max(
+                minimum_audio_bitrate_kbps,
+                initial_audio_bitrate_kbps,
             )
 
-        process = subprocess.Popen(
-            command,
-            stderr=subprocess.PIPE,
-            universal_newlines=True
-        )
+        while True:
+            command = ["ffmpeg", "-y", "-i", video_path]
 
-        start_time = time.time()
-        last_percent = -1
+            if audio_path:
+                command += ["-i", audio_path]
 
-        for line in process.stderr:
-            match = time_pattern.search(line)
+            if reencode:
+                command += [
+                    "-c:v", "libx264",
+                    "-c:a", "aac",
+                    "-movflags", "+faststart",
+                    "-threads", str(used_threads),
+                ]
 
-            if match:
-                h, m, s, ms = map(int, match.groups())
-                current_sec = h * 3600 + m * 60 + s + ms / 100.0
-                percent = min((current_sec / duration_sec) * 100, 100)
+                if max_bytes is not None:
+                    command += [
+                        "-b:v", f"{video_bitrate_kbps}k",
+                        "-b:a", f"{audio_bitrate_kbps}k",
+                    ]
 
-                if int(percent) != last_percent:
-                    last_percent = int(percent)
-                    elapsed = time.time() - start_time
+                if output_height and source_resolution_height and (
+                    output_height < source_resolution_height
+                ):
+                    command += ["-vf", f"scale=-2:{output_height}"]
 
-                    if percent > 0:
-                        remaining = (elapsed / percent) * (100 - percent)
-                        eta = time.time() + remaining
-                        eta_str = time.strftime(
-                            "%H:%M:%S",
-                            time.localtime(eta)
+                if fast_encode:
+                    command += ["-preset", "ultrafast"]
+
+                if start_end:
+                    command += [
+                        "-ss", str(start),
+                        "-t", str(end - start),
+                    ]
+            else:
+                command += ["-c", "copy"]
+
+            command.append(output_path)
+
+            print("[INFO] Merging video and audio...")
+            print(f"[INFO] Using {used_threads}/{total_cores} CPU cores")
+            if max_bytes is not None:
+                if resolution_name:
+                    print(f"[INFO] Encoding at {resolution_name}")
+                print(
+                    f"[INFO] Encoding video at {video_bitrate_kbps} kbps "
+                    f"and audio at {audio_bitrate_kbps} kbps"
+                )
+
+            process = subprocess.Popen(
+                command,
+                stderr=subprocess.PIPE,
+                universal_newlines=True,
+            )
+
+            start_time = time.time()
+            last_percent = -1
+
+            for line in process.stderr:
+                match = time_pattern.search(line)
+
+                if match:
+                    h, m, s, ms = map(int, match.groups())
+                    current_sec = h * 3600 + m * 60 + s + ms / 100.0
+                    percent = min((current_sec / duration_sec) * 100, 100)
+
+                    if int(percent) != last_percent:
+                        last_percent = int(percent)
+                        elapsed = time.time() - start_time
+
+                        if percent > 0:
+                            remaining = (elapsed / percent) * (100 - percent)
+                            eta = time.time() + remaining
+                            eta_str = time.strftime(
+                                "%H:%M:%S",
+                                time.localtime(eta),
+                            )
+                        else:
+                            eta_str = "Calculating..."
+
+                        elapsed_str = str(timedelta(seconds=int(elapsed)))
+                        print(
+                            f"\r[PROGRESS] "
+                            f"{percent:.2f}% | "
+                            f"Elapsed: {elapsed_str} | "
+                            f"ETA: {eta_str}",
+                            end="",
                         )
-                    else:
-                        eta_str = "Calculating..."
 
-                    elapsed_str = str(timedelta(seconds=int(elapsed)))
-                    print(
-                        f"\r[PROGRESS] "
-                        f"{percent:.2f}% | "
-                        f"Elapsed: {elapsed_str} | "
-                        f"ETA: {eta_str}",
-                        end=''
-                    )
+            process.wait()
 
-        process.wait()
+            if process.returncode != 0:
+                raise subprocess.CalledProcessError(
+                    process.returncode,
+                    command,
+                )
 
-        if process.returncode != 0:
-            raise subprocess.CalledProcessError(
-                process.returncode,
-                command
+            elapsed_str = str(
+                timedelta(seconds=int(time.time() - start_time))
+            )
+            print(
+                f"\r[PROGRESS] "
+                f"100.00% | "
+                f"Elapsed: {elapsed_str} | "
+                f"ETA: done      "
             )
 
-        elapsed_str = str(
-            timedelta(seconds=int(time.time() - start_time))
-        )
-        print(
-            f"\r[PROGRESS] "
-            f"100.00% | "
-            f"Elapsed: {elapsed_str} | "
-            f"ETA: done      "
-        )
+            if max_bytes is None:
+                print("\n[INFO] Merging complete.")
+                return
 
-        if max_bytes is None:
+            output_size = os.path.getsize(output_path)
+            if output_size < max_bytes:
+                logger.info(
+                    f"Output size: {output_size / 1_000_000:.2f} MB "
+                    f"(< {max_file_size_mb:g} MB)"
+                )
+                print("\n[INFO] Merging complete.")
+                return
+
+            logger.warning(
+                f"Output is {output_size / 1_000_000:.2f} MB, "
+                f"not below the {max_file_size_mb:g} MB limit."
+            )
+
+            if video_bitrate_kbps > minimum_video_bitrate_kbps:
+                next_bitrate_kbps = int(
+                    video_bitrate_kbps * max_bytes / output_size * 0.9
+                )
+                if next_bitrate_kbps >= video_bitrate_kbps:
+                    next_bitrate_kbps = video_bitrate_kbps - 10
+                video_bitrate_kbps = max(
+                    minimum_video_bitrate_kbps,
+                    next_bitrate_kbps,
+                )
+                logger.info(
+                    "Reducing video bitrate to %s kbps and retrying.",
+                    video_bitrate_kbps,
+                )
+                continue
+
+            if audio_bitrate_kbps > minimum_audio_bitrate_kbps:
+                next_bitrate_kbps = int(
+                    audio_bitrate_kbps * max_bytes / output_size * 0.9
+                )
+                if next_bitrate_kbps >= audio_bitrate_kbps:
+                    next_bitrate_kbps = audio_bitrate_kbps - 8
+                audio_bitrate_kbps = max(
+                    minimum_audio_bitrate_kbps,
+                    next_bitrate_kbps,
+                )
+                logger.info(
+                    "Video bitrate reached its minimum; reducing audio "
+                    "bitrate to %s kbps and retrying.",
+                    audio_bitrate_kbps,
+                )
+                continue
+
+            logger.warning(
+                "Both bitrates reached their configured minimums; "
+                "trying the next lower resolution."
+            )
             break
 
-        output_size = os.path.getsize(output_path)
-        if output_size < max_bytes:
-            logger.info(
-                f"Output size: {output_size / 1_000_000:.2f} MB "
-                f"(< {max_file_size_mb:g} MB)"
-            )
-            break
+    if os.path.exists(output_path):
+        os.remove(output_path)
 
-        logger.warning(
-            f"Output is {output_size / 1_000_000:.2f} MB, "
-            f"not below the {max_file_size_mb:g} MB limit; "
-            "reducing video bitrate and retrying."
-        )
-
-        next_bitrate_kbps = int(
-            video_bitrate_kbps * max_bytes / output_size * 0.9
-        )
-        if next_bitrate_kbps >= video_bitrate_kbps:
-            next_bitrate_kbps = video_bitrate_kbps - 10
-
-        if next_bitrate_kbps < 50:
-            os.remove(output_path)
-            raise VideoSizeLimitError(
-                f"Could not meet the {max_file_size_mb:g} MB size limit "
-                "at the minimum supported video bitrate of 50 kbps."
-            )
-
-        video_bitrate_kbps = next_bitrate_kbps
-
-    print("\n[INFO] Merging complete.")
+    raise VideoSizeLimitError(
+        f"Could not meet the {max_file_size_mb:g} MB size limit at "
+        f"{attempts[-1][0]} using minimum video bitrate "
+        f"{minimum_video_bitrate_kbps} kbps and minimum audio bitrate "
+        f"{minimum_audio_bitrate_kbps} kbps."
+    )
 
 
 def convert_to_mp3(

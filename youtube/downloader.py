@@ -6,7 +6,10 @@ import subprocess
 from pytubefix import YouTube
 from datetime import timedelta
 from yt_dlp import YoutubeDL
-from media_processing.ffmpeg import merge_video_audio
+from media_processing.ffmpeg import (
+    AudioSizeLimitError,
+    merge_video_audio,
+)
 
 
 # TODO: Make video downloading also based on yt-dlp, with fallback between yt-dlp and pytubefix
@@ -20,6 +23,8 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 logger = logging.getLogger(__name__)
+
+STANDARD_RESOLUTION_HEIGHTS = (2160, 1440, 1080, 720, 480, 360, 240, 144)
 
 
 def sanitize_filename(name: str) -> str:
@@ -54,12 +59,97 @@ def move_to_final_location(working_path: str, final_path: str) -> None:
         shutil.move(working_path, final_path)
 
 
+def _resolution_height(resolution: str) -> int:
+    match = re.fullmatch(r"(\d+)p", resolution)
+    if not match:
+        raise ValueError(f"Invalid video resolution: {resolution!r}")
+    return int(match.group(1))
+
+
+def _build_resolution_attempts(
+    source_resolution: str,
+    minimum_resolution: str,
+) -> list[tuple[str, int]]:
+    source_height = _resolution_height(source_resolution)
+    minimum_height = _resolution_height(minimum_resolution)
+    if minimum_height not in STANDARD_RESOLUTION_HEIGHTS:
+        raise ValueError(
+            "minimum_resolution must be one of "
+            f"{', '.join(f'{height}p' for height in STANDARD_RESOLUTION_HEIGHTS)}."
+        )
+    if minimum_height > source_height:
+        raise ValueError(
+            f"minimum_resolution ({minimum_resolution}) cannot be higher "
+            f"than the downloaded resolution ({source_resolution})."
+        )
+
+    heights = [source_height]
+    heights.extend(
+        height
+        for height in STANDARD_RESOLUTION_HEIGHTS
+        if minimum_height <= height < source_height
+    )
+    return [(f"{height}p", height) for height in heights]
+
+
+def _stream_bitrate_kbps(stream) -> int:
+    bitrate = stream.bitrate
+    if bitrate is None or bitrate <= 0:
+        raise RuntimeError(
+            f"Could not determine the source bitrate for {stream}."
+        )
+    return max(1, round(bitrate / 1000))
+
+
+def _video_encoding_options(
+    video_stream,
+    audio_stream,
+    max_file_size_mb: float | None,
+    minimum_resolution: str,
+    minimum_video_bitrate_kbps: int,
+    minimum_audio_bitrate_kbps: int,
+    progressive: bool = False,
+) -> dict:
+    source_resolution_height = _resolution_height(video_stream.resolution)
+    initial_video_bitrate_kbps = None
+    initial_audio_bitrate_kbps = 96
+    resolution_attempts = None
+
+    if max_file_size_mb is not None:
+        initial_audio_bitrate_kbps = (
+            _stream_bitrate_kbps(audio_stream)
+            if audio_stream is not None
+            else 96
+        )
+        initial_video_bitrate_kbps = _stream_bitrate_kbps(video_stream)
+        if progressive:
+            initial_video_bitrate_kbps = max(
+                minimum_video_bitrate_kbps,
+                initial_video_bitrate_kbps - initial_audio_bitrate_kbps,
+            )
+        resolution_attempts = _build_resolution_attempts(
+            video_stream.resolution,
+            minimum_resolution,
+        )
+
+    return {
+        "resolution_attempts": resolution_attempts,
+        "source_resolution_height": source_resolution_height,
+        "initial_video_bitrate_kbps": initial_video_bitrate_kbps,
+        "initial_audio_bitrate_kbps": initial_audio_bitrate_kbps,
+        "minimum_video_bitrate_kbps": minimum_video_bitrate_kbps,
+        "minimum_audio_bitrate_kbps": minimum_audio_bitrate_kbps,
+    }
+
+
 def download_audio_with_ytdlp(
     video_url: str,
     download_dir: str,
     start_end: tuple = None,
-    bitrate: str = "192k",
-    final_download_dir: str = None
+    bitrate: int = 192,
+    final_download_dir: str = None,
+    max_file_size_mb: float | None = None,
+    minimum_audio_bitrate_kbps: int = 32,
 ):
     """
     Download the best available audio using yt-dlp,
@@ -156,12 +246,6 @@ def download_audio_with_ytdlp(
             "to USB-compatible MP3..."
         )
 
-        command = [
-            "ffmpeg",
-            "-y",
-            "-i", downloaded_path
-        ]
-
         # Optional trimming.
         #
         # Example:
@@ -191,39 +275,69 @@ def download_audio_with_ytdlp(
                 f"({end - start:.2f}s)"
             )
 
-            command += [
-                "-ss", str(start),
-                "-t", str(end - start)
+        if minimum_audio_bitrate_kbps <= 0:
+            raise ValueError("Minimum audio bitrate must be greater than zero.")
+        if max_file_size_mb is not None and max_file_size_mb <= 0:
+            raise ValueError("Maximum file size must be greater than zero.")
+
+        bitrate_kbps = max(bitrate, minimum_audio_bitrate_kbps)
+        while True:
+            command = [
+                "ffmpeg",
+                "-y",
+                "-i", downloaded_path,
             ]
+            if start_end:
+                command += [
+                    "-ss", str(start_end[0]),
+                    "-t", str(start_end[1] - start_end[0]),
+                ]
+            command += [
+                "-vn",
+                "-c:a", "libmp3lame",
+                "-b:a", f"{bitrate_kbps}k",
+                "-ar", "44100",
+                "-ac", "2",
+                "-id3v2_version", "3",
+                working_audio_path,
+            ]
+            subprocess.run(command, check=True)
 
-        command += [
-            "-vn",
+            if max_file_size_mb is None:
+                break
 
-            # Explicit MP3 encoding.
-            # This re-encodes the audio even if
-            # the downloaded source is already MP3.
-            "-c:a", "libmp3lame",
+            max_bytes = int(max_file_size_mb * 1_000_000)
+            output_size = os.path.getsize(working_audio_path)
+            if output_size < max_bytes:
+                logger.info(
+                    "Audio output size: %.2f MB (< %g MB)",
+                    output_size / 1_000_000,
+                    max_file_size_mb,
+                )
+                break
 
-            # Constant bitrate.
-            "-b:a", bitrate,
+            if bitrate_kbps <= minimum_audio_bitrate_kbps:
+                os.remove(working_audio_path)
+                raise AudioSizeLimitError(
+                    f"Could not meet the {max_file_size_mb:g} MB size limit "
+                    f"at the minimum audio bitrate of "
+                    f"{minimum_audio_bitrate_kbps} kbps."
+                )
 
-            # Very common audio sample rate.
-            "-ar", "44100",
+            next_bitrate_kbps = int(
+                bitrate_kbps * max_bytes / output_size * 0.9
+            )
+            if next_bitrate_kbps >= bitrate_kbps:
+                next_bitrate_kbps = bitrate_kbps - 8
+            bitrate_kbps = max(
+                minimum_audio_bitrate_kbps,
+                next_bitrate_kbps,
+            )
+            logger.info(
+                "Audio exceeds the size limit; retrying at %s kbps.",
+                bitrate_kbps,
+            )
 
-            # Stereo.
-            "-ac", "2",
-
-            # Better compatibility with older
-            # MP3 players / USB speakers.
-            "-id3v2_version", "3",
-
-            working_audio_path
-        ]
-
-        subprocess.run(
-            command,
-            check=True
-        )
         move_to_final_location(
             working_audio_path,
             final_audio_path
@@ -245,6 +359,8 @@ def download_audio_with_ytdlp(
 
         return final_audio_path
 
+    except AudioSizeLimitError:
+        raise
     except Exception:
         logger.exception(
             "Audio download/conversion failed"
@@ -263,7 +379,10 @@ def download_video(
     fast_encode: bool = False,
     threads: int = None,
     start_end: tuple = None,
-    final_download_dir: str = None
+    final_download_dir: str = None,
+    minimum_resolution: str = "144p",
+    minimum_video_bitrate_kbps: int = 50,
+    minimum_audio_bitrate_kbps: int = 32,
 ):
     """
     Download a YouTube video or audio.
@@ -280,8 +399,10 @@ def download_video(
             video_url=video_url,
             download_dir=download_dir,
             start_end=start_end,
-            bitrate="192k",
-            final_download_dir=final_download_dir
+            bitrate=192,
+            final_download_dir=final_download_dir,
+            max_file_size_mb=max_file_size_mb,
+            minimum_audio_bitrate_kbps=minimum_audio_bitrate_kbps,
         )
 
         return
@@ -415,7 +536,15 @@ def download_video(
             fast_encode=fast_encode,
             threads=threads,
             start_end=start_end,
-            max_file_size_mb=max_file_size_mb
+            max_file_size_mb=max_file_size_mb,
+            **_video_encoding_options(
+                video_stream,
+                audio_stream,
+                max_file_size_mb,
+                minimum_resolution,
+                minimum_video_bitrate_kbps,
+                minimum_audio_bitrate_kbps,
+            ),
         )
         move_to_final_location(
             working_output_path,
@@ -513,7 +642,15 @@ def download_video(
                 fast_encode=fast_encode,
                 threads=threads,
                 start_end=start_end,
-                max_file_size_mb=max_file_size_mb
+                max_file_size_mb=max_file_size_mb,
+                **_video_encoding_options(
+                    video_stream,
+                    audio_stream,
+                    max_file_size_mb,
+                    minimum_resolution,
+                    minimum_video_bitrate_kbps,
+                    minimum_audio_bitrate_kbps,
+                ),
             )
             move_to_final_location(
                 working_output_path,
@@ -591,7 +728,16 @@ def download_video(
                     fast_encode=fast_encode,
                     threads=threads,
                     start_end=start_end,
-                    max_file_size_mb=max_file_size_mb
+                    max_file_size_mb=max_file_size_mb,
+                    **_video_encoding_options(
+                        stream,
+                        None,
+                        max_file_size_mb,
+                        minimum_resolution,
+                        minimum_video_bitrate_kbps,
+                        minimum_audio_bitrate_kbps,
+                        progressive=True,
+                    ),
                 )
                 move_to_final_location(
                     os.path.join(download_dir, final_filename),
