@@ -10,6 +10,10 @@ from datetime import timedelta
 logger = logging.getLogger(__name__)
 
 
+class VideoSizeLimitError(RuntimeError):
+    """Raised when a video cannot be encoded within the configured size limit."""
+
+
 def merge_video_audio(
     video_path: str,
     audio_path: str | None,
@@ -198,10 +202,9 @@ def merge_video_audio(
 
         if next_bitrate_kbps < 50:
             os.remove(output_path)
-            raise RuntimeError(
-                f"Could not encode the video below "
-                f"{max_file_size_mb:g} MB without reducing "
-                "the video bitrate below 50 kbps."
+            raise VideoSizeLimitError(
+                f"Could not meet the {max_file_size_mb:g} MB size limit "
+                "at the minimum supported video bitrate of 50 kbps."
             )
 
         video_bitrate_kbps = next_bitrate_kbps

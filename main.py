@@ -1,8 +1,13 @@
 import json
+import logging
 import tempfile
 from pathlib import Path
 
+from media_processing.ffmpeg import VideoSizeLimitError
 from youtube.downloader import download_video
+
+
+logger = logging.getLogger(__name__)
 
 
 def main():
@@ -59,4 +64,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except VideoSizeLimitError as error:
+        logger.error("Download stopped: %s", error)
